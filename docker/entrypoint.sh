@@ -143,9 +143,16 @@ cd /workspace/YuE-Interface/inference
 echo "Starting Gradio interface..."
 python interface.py &
 
-# Use debugpy for debugging
-# exec python -m debugpy --wait-for-client --listen 0.0.0.0:5678 gradio_interface.py
+# Use debugpy for debugging if DEBUG_APP is set to "true"
+if [ "${DEBUG_APP}" = "true" ]; then
+    echo "Debugger listening on port 5678"
+    exec python -m debugpy --wait-for-client --listen 0.0.0.0:5678 gradio_interface.py
+fi
 
-# echo "Starting Tensorboard interface..."
-# $CONDA_DIR/bin/conda run -n pyenv tensorboard --logdir_spec=/workspace/outputs --bind_all --port 6006 &
+# Start TensorBoard if USE_TENSORBOARD is set to "true"
+if [ "${USE_TENSORBOARD}" = "true" ]; then
+    echo "Starting TensorBoard on port 6006..."
+    $CONDA_DIR/bin/conda run -n pyenv tensorboard --logdir_spec=/workspace/outputs --bind_all --port 6006 &
+fi
+
 wait
