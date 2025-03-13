@@ -10,7 +10,7 @@ ARG PYTHON_VERSION="3.12"
 ARG PYTORCH_VERSION="2.5.1"
 ARG UBUNTU_VERSION="22.04"
 ARG DOCKER_FROM_BUILD=nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION
-ARG DOCKER_FROM_RUNTIME=nvidia/cuda:$CUDA_VERSION-runtime-ubuntu$UBUNTU_VERSION
+ARG DOCKER_FROM_RUNTIME=nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION
 
 FROM $DOCKER_FROM_BUILD AS builder
 
@@ -106,6 +106,8 @@ mkdir -p /opt/envs/$CONDAENV
 tar -xzf /tmp/yue.tar.gz -C /opt/envs/$CONDAENV
 rm /tmp/yue.tar.gz
 ln -s /opt/envs/$CONDAENV/bin/python /usr/local/bin/python
+echo "source /opt/envs/$CONDAENV/bin/activate" >> ~/.bashrc
+/usr/local/bin/python -m pip install -r requirements.txt
 EOF
 
 COPY --chmod=755 . /YuE-Interface
