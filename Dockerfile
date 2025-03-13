@@ -42,23 +42,23 @@ ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
 WORKDIR /workspace
 
 RUN <<EOF
-apt-get update
-apt-get install -y --no-install-recommends --option Acquire::Queue-Mode=access --option \
+apt-get -qq update
+apt-get -qq install -y --no-install-recommends --option Acquire::Queue-Mode=access --option \
     Acquire::Retries=3 wget git git-lfs libtinfo5 libgl1-mesa-glx build-essential \
     ca-certificates cmake curl libcurl4-openssl-dev libglib2.0-0 libsm6 libssl-dev libxext6 \
     libxrender-dev software-properties-common openssh-client unzip zlib1g-dev libc6-dev vim jq
-apt-get clean
+apt-get -qq clean
 rm -rf /var/lib/apt/lists/*
-mkdir -p ${CONDA_PATH}
 wget ${MINICONDA_INSTALLER} -O /tmp/miniconda.sh
 bash /tmp/miniconda.sh -b -p ${CONDA_PATH}
 rm /tmp/miniconda.sh
-conda create -n ${CONDAENV} -y python=${PYTHON_VERSION} -c conda-forge \
+conda install -n base -c conda-forge mamba -y
+mamba create -n ${CONDAENV} -y python=${PYTHON_VERSION} -c conda-forge \
     openmpi mpi4py conda-pack pytorch=${PYTORCH_VERSION} torchvision torchaudio
-conda run -n ${CONDAENV} pip install --no-cache-dir --use-feature=fast-deps \
+mamba run -n ${CONDAENV} pip install --no-cache-dir --use-feature=fast-deps \
     onnxruntime-gpu tensorrt huggingface_hub[cli]
 conda clean --all -y
-conda run -n ${CONDAENV} conda-pack -o /tmp/yue.tar.gz
+mamba run -n ${CONDAENV} conda-pack -o /tmp/yue.tar.gz
 EOF
 
 FROM $DOCKER_FROM_RUNTIME AS runtime
@@ -91,11 +91,11 @@ ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
 WORKDIR /workspace/YuE-Interface
 
 RUN <<EOF
-apt-get update
-apt-get install -y --no-install-recommends \
+apt-get -qq update
+apt-get -qq install -y --no-install-recommends \
     git git-lfs libtinfo5 libgl1-mesa-glx nginx
 git lfs install
-apt-get clean
+apt-get -qq clean
 rm -rf /var/lib/apt/lists/*
 EOF
 
