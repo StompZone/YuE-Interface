@@ -20,7 +20,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /workspace
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    --option Acquire::Queue-Mode=access \
+    --option Acquire::Retries=3 \
     wget git git-lfs libtinfo5 libgl1-mesa-glx \
     build-essential ca-certificates cmake curl \
     libcurl4-openssl-dev libglib2.0-0 libsm6 \
@@ -29,37 +31,37 @@ RUN apt-get update && apt-get install -y \
     unzip zlib1g-dev libc6-dev vim jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p $CONDA_PATH && \
-    wget $MINICONDA_INSTALLER -O /tmp/miniconda.sh && \
+RUN wget $MINICONDA_INSTALLER -O /tmp/miniconda.sh && \
     bash /tmp/miniconda.sh -b -p $CONDA_PATH && \
-    rm /tmp/miniconda.sh && conda create -n $CONDAENV python=$PYTHON_VERSION -y && \
-    conda install -n $CONDAENV -y -c conda-forge openmpi mpi4py conda-pack && \
-    conda clean --all -y && conda run -n $CONDAENV pip install torch==$PYTORCH_VERSION \
-    torchvision torchaudio --index-url https://download.pytorch.org/whl/cu$CUDA_PYTORCH && \
-    conda run -n $CONDAENV pip install --no-cache-dir onnxruntime-gpu tensorrt \
-    huggingface_hub[cli] && conda run -n $CONDAENV conda-pack -o /tmp/yue.tar.gz
+    rm /tmp/miniconda.sh
+
+RUN conda create -n $CONDAENV python=$PYTHON_VERSION -y && \
+    conda install -n $CONDAENV -y -c conda-forge \
+    openmpi mpi4py conda-pack \
+    pytorch=$PYTORCH_VERSION torchvision torchaudio \
+    && conda clean --all -y
+
+RUN conda run -n $CONDAENV pip install --no-cache-dir --use-feature=fast-deps \
+    onnxruntime-gpu tensorrt huggingface_hub[cli] && \
+    conda run -n $CONDAENV conda-pack -o /tmp/yue.tar.gz
 
 FROM nvidia/cuda:$CUDA_VERSION-runtime-ubuntu$UBUNTU_VERSION AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Etc/UTC \
-    PATH="$CONDA_PATH/bin:$PATH" \
-    PYPATH="/usr/local/bin/python" \
-    CONDAENV=yue \
+    PATH="/opt/envs/$CONDAENV/bin:$PATH" \
     LD_LIBRARY_PATH="/opt/envs/$CONDAENV/lib:$LD_LIBRARY_PATH"
 
 WORKDIR /workspace/YuE-Interface
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git git-lfs libtinfo5 libgl1-mesa-glx nginx && \
     git lfs install && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tmp/yue.tar.gz /tmp/yue.tar.gz
-
 RUN mkdir -p /opt/envs/$CONDAENV && tar -xzf /tmp/yue.tar.gz -C /opt/envs/$CONDAENV && \
-    rm /tmp/yue.tar.gz && ln -s /opt/envs/$CONDAENV/bin/python /usr/local/bin/python && \
-    /usr/local/bin/python -m pip install --no-cache-dir -r requirements.txt
+    rm /tmp/yue.tar.gz && ln -s /opt/envs/$CONDAENV/bin/python /usr/local/bin/python
 
 COPY --chmod=755 . /YuE-Interface
 COPY --chmod=755 docker/initialize.sh /initialize.sh
