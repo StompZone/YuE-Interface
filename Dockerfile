@@ -1,108 +1,69 @@
 ARG CUDA_VERSION="12.4.1"
 ARG CUDNN_VERSION=""
 ARG UBUNTU_VERSION="22.04"
-ARG DOCKER_FROM=nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION
+ARG PYTORCH_VERSION="2.5.1"
+ARG CUDA_PYTORCH="124"
 ARG GRADIO_PORT=7860
+ARG JUPYTER_PORT=8888
+ARG DOCKER_FROM=nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION
 
-FROM $DOCKER_FROM AS base
+FROM $DOCKER_FROM AS builder
 
-WORKDIR /
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    CONDA_DIR=/opt/conda \
+    PATH="$CONDA_DIR/bin:$PATH"
 
-# Environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Etc/UTC
-ENV PYTHON_VERSION=3.12
-ENV CONDA_DIR=/opt/conda
-ENV PATH="$CONDA_DIR/bin:$PATH"
-# ENV NUM_GPUS=1
-ENV DOWNLOAD_MODELS="all"
+WORKDIR /workspace
 
-# Install dependencies required for Miniconda
-RUN apt-get update -y && \
-    apt-get install -y wget bzip2 ca-certificates git curl && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    ca-certificates \
-    cmake \
-    curl \
-    emacs \
-    git \
-    jq \
-    libcurl4-openssl-dev \
-    libglib2.0-0 \
-    libgl1-mesa-glx \
-    libsm6 \
-    libssl-dev \
-    libxext6 \
-    libxrender-dev \
-    software-properties-common \
-    openssh-server \
-    openssh-client \
-    git-lfs \
-    vim \
-    zip \
-    unzip \
-    zlib1g-dev \
-    libc6-dev \
-    && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    wget git git-lfs libtinfo5 libgl1-mesa-glx \
+    build-essential ca-certificates cmake curl \
+    libcurl4-openssl-dev libglib2.0-0 libsm6 \
+    libssl-dev libxext6 libxrender-dev \
+    software-properties-common openssh-client \
+    unzip zlib1g-dev libc6-dev vim jq \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Download and install Miniconda
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
-    bash miniconda.sh -b -p $CONDA_DIR && \
-    rm miniconda.sh && \
-    $CONDA_DIR/bin/conda init bash
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
+    rm /tmp/miniconda.sh
 
-# Create environment with Python 3.12 and MPI
-RUN $CONDA_DIR/bin/conda create -n pyenv python=3.12 -y && \
-    $CONDA_DIR/bin/conda install -n pyenv -c conda-forge openmpi mpi4py -y 
+RUN conda create -n yue python=3.12 -y && \
+    conda install -n yue -y -c conda-forge openmpi mpi4py conda-pack && \
+    conda clean --all -y
 
+RUN conda run -n yue pip install torch==$PYTORCH_VERSION torchvision torchaudio --index-url https://download.pytorch.org/whl/cu$CUDA_PYTORCH
 
-# Define PyTorch versions via arguments
-ARG PYTORCH="2.5.1"
-ARG CUDA="124"
+RUN conda run -n yue pip install --no-cache-dir \
+    onnxruntime-gpu tensorrt huggingface_hub[cli]
 
-# Install PyTorch with specified version and CUDA
-RUN $CONDA_DIR/bin/conda run -n pyenv \
-    pip install torch==$PYTORCH torchvision torchaudio --index-url https://download.pytorch.org/whl/cu$CUDA
+RUN conda run -n yue conda-pack -o /tmp/yue.tar.gz
 
-RUN $CONDA_DIR/bin/conda install -n pyenv nvidia/label/cuda-12.4.1::cuda-nvcc
+FROM nvidia/cuda:$CUDA_VERSION-runtime-ubuntu$UBUNTU_VERSION AS runtime
 
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    PATH="/opt/envs/yue/bin:$PATH" \
+    LD_LIBRARY_PATH="/opt/envs/yue/lib:$LD_LIBRARY_PATH"
 
-# Install git lfs
-RUN apt-get update && apt-get install -y git-lfs && git lfs install
+WORKDIR /workspace/YuE
 
-# Install nginx
-RUN apt-get update && \
-    apt-get install -y nginx
+RUN apt-get update && apt-get install -y \
+    git git-lfs libtinfo5 libgl1-mesa-glx nginx && \
+    git lfs install && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY docker/default /etc/nginx/sites-available/default
+COPY --from=builder /tmp/yue.tar.gz /tmp/yue.tar.gz
+RUN mkdir -p /opt/envs/yue && tar -xzf /tmp/yue.tar.gz -C /opt/envs/yue && rm /tmp/yue.tar.gz
+RUN ln -s /opt/envs/yue/bin/python /usr/local/bin/python
 
-# Add Jupyter Notebook
-RUN pip install jupyterlab ipywidgets jupyter-archive jupyter_contrib_nbextensions nodejs
+RUN /opt/envs/yue/bin/python -m pip install --no-cache-dir -r requirements.txt
 
-RUN pip install -U "huggingface_hub[cli]"
-
-EXPOSE 8888
-
-# Tensorboard
-# EXPOSE 6006 
-
-# Debug
-# RUN $CONDA_DIR/bin/conda run -n pyenv \
-#     pip install debugpy
-
-# EXPOSE 5678
-
-
-# Copy the entire project
 COPY --chmod=755 . /YuE-Interface
-
 COPY --chmod=755 docker/initialize.sh /initialize.sh
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
-# Expose the Gradio port
-EXPOSE $GRADIO_PORT
+EXPOSE $GRADIO_PORT $JUPYTER_PORT
 
 CMD [ "/initialize.sh" ]
